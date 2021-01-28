@@ -122,7 +122,7 @@ static INT32 consys_reset_emi_coredump(UINT8 __iomem *addr);
 static INT32 consys_check_reg_readable(VOID);
 static VOID consys_ic_clock_fail_dump(VOID);
 static INT32 consys_is_connsys_reg(UINT32 addr);
-static PUINT32 consys_resume_dump_info(VOID);
+static INT32 consys_dump_osc_state(P_CONSYS_STATE state);
 static VOID consys_set_mcif_emi_mpu_protection(MTK_WCN_BOOL enable);
 /*
  * If 1: this platform supports calibration backup/restore.
@@ -217,7 +217,7 @@ WMT_CONSYS_IC_OPS consys_ic_ops = {
 	.consys_ic_check_reg_readable = consys_check_reg_readable,
 	.consys_ic_clock_fail_dump = consys_ic_clock_fail_dump,
 	.consys_ic_is_connsys_reg = consys_is_connsys_reg,
-	.consys_ic_resume_dump_info = consys_resume_dump_info,
+	.consys_ic_dump_osc_state = consys_dump_osc_state,
 	.consys_ic_set_mcif_emi_mpu_protection = consys_set_mcif_emi_mpu_protection,
 	.consys_ic_calibration_backup_restore = consys_calibration_backup_restore_support,
 	.consys_ic_is_ant_swap_enable_by_hwid = consys_is_ant_swap_enable_by_hwid,
@@ -1581,24 +1581,24 @@ static INT32 consys_reset_emi_coredump(UINT8 __iomem *addr)
 
 static INT32 consys_check_reg_readable(VOID)
 {
-	INT32 flag = 0;
+	INT32 can_read = 0;
 	UINT32 value = 0;
-	P_DEV_WMT pDev = &gDevWmt;
 
-	if (osal_test_bit(WMT_STAT_PWR, &pDev->state)) {
+	if (conn_reg.mcu_cfg_on_base != 0 &&
+	    conn_reg.mcu_top_misc_on_base != 0) {
 		/*check connsys clock and sleep status*/
 		CONSYS_REG_WRITE(conn_reg.mcu_conn_hif_on_base, CONSYS_CLOCK_CHECK_VALUE);
 		udelay(1000);
 		value = CONSYS_REG_READ(conn_reg.mcu_conn_hif_on_base);
 		if ((value & CONSYS_HCLK_CHECK_BIT) &&
 		    (value & CONSYS_OSCCLK_CHECK_BIT))
-			flag = 1;
+			can_read = 1;
 	}
 
-	if (!flag)
+	if (!can_read)
 		WMT_PLAT_PR_ERR("connsys clock check fail 0x18007000(0x%x)\n", value);
 
-	return flag;
+	return can_read;
 }
 
 static VOID consys_ic_clock_fail_dump(VOID)
@@ -1722,27 +1722,33 @@ static INT32 consys_is_connsys_reg(UINT32 addr)
 	return 0;
 }
 
-static PUINT32 consys_resume_dump_info(VOID)
+static INT32 consys_dump_osc_state(P_CONSYS_STATE state)
 {
-	if (conn_reg.mcu_cfg_on_base != 0 &&
-	    conn_reg.mcu_top_misc_on_base != 0 &&
-	    mtk_consys_check_reg_readable()) {
-		stp_dbg_clear_cpupcr_reg_info();
-		stp_dbg_poll_cpupcr(5, 0, 1);
-		CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_HOST_MAILBOX_MCU_ADDR, 0x1);
-		CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_CTL_ADDR, 0x80000001);
-		CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_SEL0_ADDR, 0x03020100);
-		CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_SEL1_ADDR, 0x07060504);
-		CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_SEL2_ADDR, 0x0b0a0908);
-		CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_SEL3_ADDR, 0x0f0e0d0c);
-		CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_DBGSEL_ADDR, 0x3);
-		g_connsys_lp_dump_info[0] = (UINT32)CONN_CFG_ON_CONN_ON_MON_FLAG_RECORD_MAPPING_AP_ADDR;
-		g_connsys_lp_dump_info[1] = CONSYS_REG_READ(CONN_CFG_ON_CONN_ON_MON_FLAG_RECORD_ADDR);
-		WMT_PLAT_PR_INFO("0x%08x: 0x%x\n", g_connsys_lp_dump_info[0], g_connsys_lp_dump_info[1]);
-		CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_HOST_MAILBOX_MCU_ADDR, 0x0);
-		return &g_connsys_lp_dump_info[0];
-	}
-	return NULL;
+#if 0
+	UINT8 __iomem *addr;
+#endif
+
+	CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_HOST_MAILBOX_MCU_ADDR, 0x1);
+	CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_CTL_ADDR, 0x80000001);
+	CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_SEL0_ADDR, 0x03020100);
+	CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_SEL1_ADDR, 0x07060504);
+	CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_SEL2_ADDR, 0x0b0a0908);
+	CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_MON_SEL3_ADDR, 0x0f0e0d0c);
+	CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_DBGSEL_ADDR, 0x3);
+	state->lp[0] = (UINT32)CONN_CFG_ON_CONN_ON_MON_FLAG_RECORD_MAPPING_AP_ADDR;
+	state->lp[1] = CONSYS_REG_READ(CONN_CFG_ON_CONN_ON_MON_FLAG_RECORD_ADDR);
+	WMT_PLAT_PR_INFO("0x%08x: 0x%x\n", state->lp[0], state->lp[1]);
+	CONSYS_REG_WRITE(CONN_CFG_ON_CONN_ON_HOST_MAILBOX_MCU_ADDR, 0x0);
+
+#if 0
+	addr = ioremap_nocache(gConEmiPhyBase + 0x66500, sizeof(struct consys_sw_state));
+	if (addr)
+		memcpy_fromio(&state->sw_state, addr, sizeof(struct consys_sw_state));
+	else
+		WMT_PLAT_PR_ERR("ioremap fail\n");
+	iounmap(addr);
+#endif
+	return MTK_WCN_BOOL_TRUE;
 }
 
 static VOID consys_set_mcif_emi_mpu_protection(MTK_WCN_BOOL enable)
